@@ -1,0 +1,195 @@
+import hashlib
+import json
+from time import time
+from typing import List, Dict
+
+# Define Token class
+class Token:
+    def __init__(self, name, symbol, total_supply):
+        self.name = name
+        self.symbol = symbol
+        self.total_supply = total_supply
+        self.balances = {}  # Maps account address to balance
+
+    def mint(self, account, amount):
+        if amount <= 0:
+            print("Amount to mint must be positive.")
+            return False
+        if account not in self.balances:
+            self.balances[account] = 0
+        if self.total_supply < amount:
+            print("Insufficient total supply to mint.")
+            return False
+        self.balances[account] += amount
+        self.total_supply -= amount
+        print(f"Minted {amount} {self.symbol} tokens to {account}.")
+        return True
+
+    def transfer(self, sender, recipient, amount):
+        if amount <= 0:
+            print("Amount to transfer must be positive.")
+            return False
+        if sender not in self.balances or recipient not in self.balances:
+            print("Sender or recipient account does not exist.")
+            return False
+        if self.balances[sender] < amount:
+            print(f"Insufficient balance in account {sender}.")
+            return False
+
+        self.balances[sender] -= amount
+        self.balances[recipient] = self.balances.get(recipient, 0) + amount
+        print(f"Transferred {amount} {self.symbol} tokens from {sender} to {recipient}.")
+        return True
+
+    def get_balance(self, account):
+        return self.balances.get(account, 0)
+
+    def __str__(self):
+        return f"Token(Name: {self.name}, Symbol: {self.symbol}, Total Supply: {self.total_supply})"
+
+# Define Liquidity Pool class
+class LiquidityPool:
+    def __init__(self, token1: Token, token2: Token):
+        self.token1 = token1
+        self.token2 = token2
+        self.token1_reserve = 0
+        self.token2_reserve = 0
+        self.total_liquidity = 0
+
+    def provide_liquidity(self, account, amount_token1, amount_token2):
+        if amount_token1 <= 0 or amount_token2 <= 0:
+            print("Amounts must be positive.")
+            return False
+        if self.token1.get_balance(account) < amount_token1:
+            print(f"Insufficient balance of {self.token1.symbol} tokens in account {account}.")
+            return False
+        if self.token2.get_balance(account) < amount_token2:
+            print(f"Insufficient balance of {self.token2.symbol} tokens in account {account}.")
+            return False
+
+        self.token1.transfer(account, "pool", amount_token1)
+        self.token2.transfer(account, "pool", amount_token2)
+        self.token1_reserve += amount_token1
+        self.token2_reserve += amount_token2
+        self.total_liquidity += amount_token1 + amount_token2
+        print(f"Provided {amount_token1} {self.token1.symbol} and {amount_token2} {self.token2.symbol} to the pool.")
+        return True
+
+    def swap(self, account, from_token, amount):
+        if from_token == self.token1:
+            if amount <= 0 or self.token1_reserve < amount:
+                print("Invalid amount or insufficient liquidity.")
+                return False
+            amount_out = self.get_output_amount(amount, self.token1_reserve, self.token2_reserve)
+            self.token1.transfer(account, "pool", amount)
+            self.token2.transfer("pool", account, amount_out)
+            self.token1_reserve += amount
+            self.token2_reserve -= amount_out
+            print(f"Swapped {amount} {self.token1.symbol} for {amount_out} {self.token2.symbol}.")
+            return True
+        elif from_token == self.token2:
+            if amount <= 0 or self.token2_reserve < amount:
+                print("Invalid amount or insufficient liquidity.")
+                return False
+            amount_out = self.get_output_amount(amount, self.token2_reserve, self.token1_reserve)
+            self.token2.transfer(account, "pool", amount)
+            self.token1.transfer("pool", account, amount_out)
+            self.token2_reserve += amount
+            self.token1_reserve -= amount_out
+            print(f"Swapped {amount} {self.token2.symbol} for {amount_out} {self.token1.symbol}.")
+            return True
+        else:
+            print("Invalid token for swap.")
+            return False
+
+    def get_output_amount(self, input_amount, input_reserve, output_reserve):
+        # Simple automated market maker formula
+        return output_reserve - (output_reserve * (input_reserve / (input_reserve + input_amount)))
+
+    def __str__(self):
+        return (f"LiquidityPool(Token1: {self.token1.symbol}, Token2: {self.token2.symbol}, "
+                f"Token1 Reserve: {self.token1_reserve}, Token2 Reserve: {self.token2_reserve}, "
+                f"Total Liquidity: {self.total_liquidity})")
+
+# Define DeFiExplorerHub class
+class DeFiExplorerHub:
+    def __init__(self):
+        self.tokens = {}
+        self.liquidity_pools = {}
+
+    def create_token(self, name, symbol, total_supply):
+        if symbol in self.tokens:
+            print(f"Token with symbol {symbol} already exists.")
+            return False
+        token = Token(name, symbol, total_supply)
+        self.tokens[symbol] = token
+        print(f"Token {name} ({symbol}) created with total supply {total_supply}.")
+        return True
+
+    def create_liquidity_pool(self, symbol1, symbol2):
+        if symbol1 not in self.tokens or symbol2 not in self.tokens:
+            print(f"One or both tokens {symbol1}, {symbol2} do not exist.")
+            return False
+        token1 = self.tokens[symbol1]
+        token2 = self.tokens[symbol2]
+        pool = LiquidityPool(token1, token2)
+        self.liquidity_pools[(symbol1, symbol2)] = pool
+        print(f"Liquidity pool created for {symbol1} and {symbol2}.")
+        return True
+
+    def provide_liquidity(self, symbol1, symbol2, account, amount_token1, amount_token2):
+        if (symbol1, symbol2) not in self.liquidity_pools:
+            print(f"Liquidity pool for tokens {symbol1} and {symbol2} does not exist.")
+            return False
+        pool = self.liquidity_pools[(symbol1, symbol2)]
+        return pool.provide_liquidity(account, amount_token1, amount_token2)
+
+    def swap_tokens(self, symbol1, symbol2, account, from_token_symbol, amount):
+        if (symbol1, symbol2) not in self.liquidity_pools:
+            print(f"Liquidity pool for tokens {symbol1} and {symbol2} does not exist.")
+            return False
+        if from_token_symbol not in self.tokens:
+            print(f"Token {from_token_symbol} does not exist.")
+            return False
+        from_token = self.tokens[from_token_symbol]
+        pool = self.liquidity_pools[(symbol1, symbol2)]
+        return pool.swap(account, from_token, amount)
+
+    def get_token_metrics(self, symbol):
+        if symbol not in self.tokens:
+            print(f"Token with symbol {symbol} does not exist.")
+            return None
+        token = self.tokens[symbol]
+        return {
+            "Name": token.name,
+            "Symbol": token.symbol,
+            "Total Supply": token.total_supply,
+            "Balances": token.balances
+        }
+
+    def get_liquidity_pool_metrics(self, symbol1, symbol2):
+        if (symbol1, symbol2) not in self.liquidity_pools:
+            print(f"Liquidity pool for tokens {symbol1} and {symbol2} does not exist.")
+            return None
+        pool = self.liquidity_pools[(symbol1, symbol2)]
+        return {
+            "Token1": pool.token1.symbol,
+            "Token2": pool.token2.symbol,
+            "Token1 Reserve": pool.token1_reserve,
+            "Token2 Reserve": pool.token2_reserve,
+            "Total Liquidity": pool.total_liquidity
+        }
+
+# Example Usage
+defi_explorer = DeFiExplorerHub()
+
+# Create tokens
+defi_explorer.create_token("Bitcoin", "BTC", 1000000)
+defi_explorer.create_token("Ethereum", "ETH", 2000000)
+
+# Create liquidity pool
+defi_explorer.create_liquidity_pool("BTC", "ETH")
+
+# Create accounts and mint tokens
+defi_explorer.tokens["BTC"].balances["alice"] = 10000
+defi_explorer.tokens["ETH"].balances["alice"] =
